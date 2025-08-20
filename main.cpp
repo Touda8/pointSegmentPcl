@@ -78,7 +78,7 @@ int main(int argc, char* argv[]) {
     
     // 启用深度信息可视化
     depthGenerator.setDepthVisualization(true);
-    depthGenerator.setDepthColorMap(cv::COLORMAP_JET); // 使用JET颜色映射
+    depthGenerator.setDepthColorMap(cv::COLORMAP_PLASMA); // 使用PLASMA颜色映射以获得更好的对比度
     
     // 添加示例ROI（可选）
     ImageROI roi1;

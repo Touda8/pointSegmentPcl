@@ -27,6 +27,9 @@ DepthImageGenerator::DepthImageGenerator()
     , planeDistance_(0.0f)
     , enableDepthVisualization_(true)
     , depthColorMapType_(cv::COLORMAP_JET)
+    , usePlaneRelativeDepth_(false)  // 默认使用相机深度
+    , planeRelativeMinDepth_(-1000.0f)
+    , planeRelativeMaxDepth_(1000.0f)
     , nextROIId_(1)
     , originalPointCloud_(new pcl::PointCloud<pcl::PointXYZ>)
 {
@@ -79,6 +82,9 @@ bool DepthImageGenerator::generateDepthImage(const std::string& inputCloudPath, 
             }
             computeCameraFromPlane();
         }
+
+        // 调整平面相对深度范围
+        adjustPlaneRelativeDepthRange(cloud);
 
         // 变换点云到相机坐标系
         transformPointCloud(cloud);
@@ -228,31 +234,41 @@ bool DepthImageGenerator::projectToDepthImage(const pcl::PointCloud<pcl::PointXY
             const auto& point = cloud->points[pointIndex];
             totalPoints++;
             
-            // 检查点是否在深度范围内
-            // 对于负Z值，需要检查绝对值是否在范围内
-            float depth = std::abs(point.z);
+            // 投影计算使用相机距离
+            float cameraDepth = std::abs(point.z);
+            
+            // 检查点是否在相机深度范围内（用于投影过滤）
             float minDepthAbs = std::min(std::abs(minDepth_), std::abs(maxDepth_));
             float maxDepthAbs = std::max(std::abs(minDepth_), std::abs(maxDepth_));
             
-            if (depth < minDepthAbs || depth > maxDepthAbs) {
+            if (cameraDepth < minDepthAbs || cameraDepth > maxDepthAbs) {
                 depthFilteredOut++;
                 continue;
             }
-
+            
             // 投影到图像平面 - 使用绝对值进行投影计算 (x和y轴交换)
-            int u = static_cast<int>((point.y * focalLength_) / depth + principalPointX_);
-            int v = static_cast<int>((point.x * focalLength_) / depth + principalPointY_);
+            int u = static_cast<int>((point.y * focalLength_) / cameraDepth + principalPointX_);
+            int v = static_cast<int>((point.x * focalLength_) / cameraDepth + principalPointY_);
 
             // 检查投影是否在图像范围内
             if (u >= 0 && u < imageWidth_ && v >= 0 && v < imageHeight_) {
-                // 只保留最近的深度值（Z-buffer）
-                float currentDepth = depthImage.at<float>(v, u);
-                if (currentDepth == 0 || depth < currentDepth) {
-                    depthImage.at<float>(v, u) = depth;  // 存储绝对深度值
+                // Z-buffer使用相机深度
+                float currentCameraDepth = depthImage.at<float>(v, u);
+                if (currentCameraDepth == 0 || cameraDepth < std::abs(currentCameraDepth)) {
+                    float depthValueToStore = cameraDepth;  // 默认存储相机深度
+                    
+                    // 如果启用了平面相对深度模式，则计算并存储平面相对深度
+                    if (usePlaneRelativeDepth_ && autoFitPlane_ && planeNormal_.norm() > 0) {
+                        Eigen::Vector3f pointVec(point.x, point.y, point.z);
+                        Eigen::Vector3f planeToPoint = pointVec - planeCenter_;
+                        depthValueToStore = planeToPoint.dot(planeNormal_);
+                    }
+                    
+                    depthImage.at<float>(v, u) = depthValueToStore;
                     
                     // 更新像素到点云的映射
                     cv::Point3f worldCoord(point.x, point.y, point.z);
-                    updatePixelToPointMapping(u, v, static_cast<int>(pointIndex), depth, worldCoord);
+                    updatePixelToPointMapping(u, v, static_cast<int>(pointIndex), depthValueToStore, worldCoord);
                     
                     validProjections++;
                 }
@@ -374,7 +390,7 @@ bool DepthImageGenerator::saveDepthImage(const cv::Mat& depthImage, const std::s
         cv::imwrite(rawOutputPath, depthImage);
         Logger::info("Raw depth data saved to: " + rawOutputPath);
 
-        // 如果启用了深度可视化，保存彩色深度图
+        // 如果启用了深度可视化，保存彩色深度图和增强灰度图
         if (enableDepthVisualization_) {
             // 保存彩色深度图
             cv::Mat colorDepthImage = generateColorDepthImage(depthImage);
@@ -382,6 +398,14 @@ bool DepthImageGenerator::saveDepthImage(const cv::Mat& depthImage, const std::s
                 std::string colorOutputPath = outputPath.substr(0, outputPath.find_last_of('.')) + "_color.png";
                 cv::imwrite(colorOutputPath, colorDepthImage);
                 Logger::info("Color depth image saved to: " + colorOutputPath);
+            }
+            
+            // 保存增强对比度的灰度深度图（用于分割）
+            cv::Mat enhancedGrayImage = generateEnhancedGrayscaleDepthImage(depthImage);
+            if (!enhancedGrayImage.empty()) {
+                std::string grayOutputPath = outputPath.substr(0, outputPath.find_last_of('.')) + "_enhanced_gray.png";
+                cv::imwrite(grayOutputPath, enhancedGrayImage);
+                Logger::info("Enhanced grayscale depth image saved to: " + grayOutputPath);
             }
             
             // 保存带信息的深度图
@@ -685,6 +709,52 @@ void DepthImageGenerator::adjustDepthRangeForTransformedCloud(const pcl::PointCl
     }
 }
 
+void DepthImageGenerator::adjustPlaneRelativeDepthRange(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) {
+    try {
+        Logger::debug("Adjusting plane relative depth range based on point cloud");
+        
+        if (!autoFitPlane_ || planeNormal_.norm() == 0) {
+            Logger::debug("No plane fitted, using Z coordinate range");
+            // 如果没有平面拟合，使用Z坐标范围
+            float minZ = std::numeric_limits<float>::max();
+            float maxZ = std::numeric_limits<float>::lowest();
+            
+            for (const auto& point : cloud->points) {
+                minZ = std::min(minZ, point.z);
+                maxZ = std::max(maxZ, point.z);
+            }
+            
+            float margin = (maxZ - minZ) * 0.1f;
+            planeRelativeMinDepth_ = minZ - margin;
+            planeRelativeMaxDepth_ = maxZ + margin;
+        } else {
+            // 计算所有点相对于拟合平面的距离
+            float minRelativeDepth = std::numeric_limits<float>::max();
+            float maxRelativeDepth = std::numeric_limits<float>::lowest();
+            
+            for (const auto& point : cloud->points) {
+                Eigen::Vector3f pointVec(point.x, point.y, point.z);
+                Eigen::Vector3f planeToPoint = pointVec - planeCenter_;
+                float relativeDepth = planeToPoint.dot(planeNormal_);
+                
+                minRelativeDepth = std::min(minRelativeDepth, relativeDepth);
+                maxRelativeDepth = std::max(maxRelativeDepth, relativeDepth);
+            }
+            
+            // 添加边界
+            float margin = (maxRelativeDepth - minRelativeDepth) * 0.1f;
+            planeRelativeMinDepth_ = minRelativeDepth - margin;
+            planeRelativeMaxDepth_ = maxRelativeDepth + margin;
+        }
+        
+        Logger::debug("Plane relative depth range set to: " + 
+                     std::to_string(planeRelativeMinDepth_) + " - " + std::to_string(planeRelativeMaxDepth_));
+        
+    } catch (const std::exception& e) {
+        Logger::error("Exception in adjusting plane relative depth range: " + std::string(e.what()));
+    }
+}
+
 pcl::PointCloud<pcl::PointXYZ>::Ptr DepthImageGenerator::preprocessPointCloud(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) {
     try {
         Logger::debug("Preprocessing point cloud for robust plane fitting");
@@ -851,34 +921,212 @@ void DepthImageGenerator::setDepthColorMap(int colorMapType) {
     Logger::debug("Depth color map set to type: " + std::to_string(colorMapType));
 }
 
+void DepthImageGenerator::setUsePlaneRelativeDepth(bool enable) {
+    usePlaneRelativeDepth_ = enable;
+    Logger::debug("Use plane relative depth " + std::string(enable ? "enabled" : "disabled"));
+}
+
 // 生成彩色深度图
 cv::Mat DepthImageGenerator::generateColorDepthImage(const cv::Mat& depthImage) {
     try {
         cv::Mat colorDepthImage;
         
-        // 首先归一化深度图到0-255范围
-        cv::Mat normalizedDepth;
+        // 首先找到非零像素的深度范围
+        cv::Mat mask = depthImage != 0;
+        cv::Mat nonZeroDepths;
+        depthImage.copyTo(nonZeroDepths, mask);
+        
         double minVal, maxVal;
-        cv::minMaxLoc(depthImage, &minVal, &maxVal);
+        cv::minMaxLoc(nonZeroDepths, &minVal, &maxVal, nullptr, nullptr, mask);
+        
+        Logger::debug("Depth range for color mapping: " + std::to_string(minVal) + " to " + std::to_string(maxVal));
         
         if (maxVal > minVal) {
-            depthImage.convertTo(normalizedDepth, CV_8U, 255.0/(maxVal - minVal), -minVal * 255.0/(maxVal - minVal));
+            // 增强深度对比度的参数
+            double contrastFactor = 2.0;  // 增强对比度系数
+            double range = maxVal - minVal;
+            double center = (maxVal + minVal) / 2.0;
+            
+            // 创建增强的深度图
+            cv::Mat enhancedDepth;
+            depthImage.copyTo(enhancedDepth);
+            
+            // 应用对比度增强
+            for (int i = 0; i < enhancedDepth.rows; ++i) {
+                for (int j = 0; j < enhancedDepth.cols; ++j) {
+                    float& val = enhancedDepth.at<float>(i, j);
+                    if (val != 0) {
+                        // 归一化到[-1, 1]范围
+                        double normalizedVal = (val - center) / (range / 2.0);
+                        
+                        // 应用S型曲线增强对比度
+                        double sign = (normalizedVal >= 0) ? 1.0 : -1.0;
+                        double absVal = std::abs(normalizedVal);
+                        double enhancedVal = sign * std::pow(absVal, 1.0 / contrastFactor);
+                        
+                        // 进一步放大范围
+                        enhancedVal = std::tanh(enhancedVal * 1.5);  // 使用tanh函数进一步增强对比度
+                        
+                        // 重新映射回原始范围并扩展
+                        val = static_cast<float>(center + enhancedVal * range * 0.8);
+                    }
+                }
+            }
+            
+            // 重新计算增强后的范围
+            cv::minMaxLoc(enhancedDepth, &minVal, &maxVal, nullptr, nullptr, mask);
+            
+            // 归一化到0-255范围
+            cv::Mat normalizedDepth;
+            enhancedDepth.convertTo(normalizedDepth, CV_8U, 255.0/(maxVal - minVal), -minVal * 255.0/(maxVal - minVal));
+            
+            // 应用颜色映射
+            cv::applyColorMap(normalizedDepth, colorDepthImage, depthColorMapType_);
+            
+            // 在黑色区域（无深度信息的地方）设置为黑色
+            cv::Mat zeroMask = depthImage == 0;
+            colorDepthImage.setTo(cv::Scalar(0, 0, 0), zeroMask);
+            
         } else {
-            normalizedDepth = cv::Mat::zeros(depthImage.size(), CV_8U);
+            // 深度值都相同，创建单色图像
+            colorDepthImage = cv::Mat::zeros(depthImage.size(), CV_8UC3);
+            cv::Mat mask = depthImage != 0;
+            colorDepthImage.setTo(cv::Scalar(128, 128, 128), mask);  // 灰色
         }
         
-        // 应用颜色映射
-        cv::applyColorMap(normalizedDepth, colorDepthImage, depthColorMapType_);
-        
-        // 在黑色区域（无深度信息的地方）设置为黑色
-        cv::Mat mask = normalizedDepth == 0;
-        colorDepthImage.setTo(cv::Scalar(0, 0, 0), mask);
-        
-        Logger::debug("Generated color depth image with color map type: " + std::to_string(depthColorMapType_));
+        Logger::debug("Generated enhanced color depth image with color map type: " + std::to_string(depthColorMapType_));
         return colorDepthImage;
         
     } catch (const std::exception& e) {
         Logger::error("Exception in generating color depth image: " + std::string(e.what()));
+        return cv::Mat();
+    }
+}
+
+// 生成增强对比度的灰度深度图（专为分割优化）
+cv::Mat DepthImageGenerator::generateEnhancedGrayscaleDepthImage(const cv::Mat& depthImage) {
+    try {
+        cv::Mat enhancedGrayImage;
+        
+        // 找到非零像素的深度范围
+        cv::Mat mask = depthImage != 0;
+        cv::Mat nonZeroDepths;
+        depthImage.copyTo(nonZeroDepths, mask);
+        
+        double minVal, maxVal;
+        cv::minMaxLoc(nonZeroDepths, &minVal, &maxVal, nullptr, nullptr, mask);
+        
+        Logger::debug("Depth range for enhanced grayscale: " + std::to_string(minVal) + " to " + std::to_string(maxVal));
+        
+        if (maxVal > minVal) {
+            // 初始化输出图像
+            enhancedGrayImage = cv::Mat::zeros(depthImage.size(), CV_8U);
+            
+            double range = maxVal - minVal;
+            
+            // 计算直方图以进行自适应增强
+            const int histSize = 256;
+            std::vector<int> histogram(histSize, 0);
+            
+            // 构建深度直方图
+            for (int i = 0; i < depthImage.rows; ++i) {
+                for (int j = 0; j < depthImage.cols; ++j) {
+                    float val = depthImage.at<float>(i, j);
+                    if (val != 0) {
+                        int binIndex = static_cast<int>((val - minVal) / range * (histSize - 1));
+                        binIndex = std::max(0, std::min(histSize - 1, binIndex));
+                        histogram[binIndex]++;
+                    }
+                }
+            }
+            
+            // 计算累积分布函数用于直方图均衡化
+            std::vector<float> cdf(histSize, 0);
+            cdf[0] = histogram[0];
+            for (int i = 1; i < histSize; ++i) {
+                cdf[i] = cdf[i-1] + histogram[i];
+            }
+            
+            // 归一化CDF
+            int totalPixels = cv::countNonZero(mask);
+            for (int i = 0; i < histSize; ++i) {
+                cdf[i] = cdf[i] / totalPixels;
+            }
+            
+            // 分段线性拉伸增强对比度
+            for (int i = 0; i < depthImage.rows; ++i) {
+                for (int j = 0; j < depthImage.cols; ++j) {
+                    float val = depthImage.at<float>(i, j);
+                    if (val != 0) {
+                        // 归一化到[0,1]
+                        double normalizedVal = (val - minVal) / range;
+                        
+                        // 应用多级对比度增强
+                        double enhancedVal;
+                        
+                        if (normalizedVal < 0.2) {
+                            // 近处区域：线性拉伸，增强细节
+                            enhancedVal = normalizedVal * 2.5;  // 扩展到0.5
+                        } else if (normalizedVal < 0.8) {
+                            // 中等距离：S形曲线增强
+                            double centered = (normalizedVal - 0.5) * 2.0;  // 映射到[-1,1]
+                            double sigmoid = std::tanh(centered * 2.0) * 0.5 + 0.5;
+                            enhancedVal = 0.2 + sigmoid * 0.6;  // 映射到[0.2, 0.8]
+                        } else {
+                            // 远处区域：压缩但保持可区分性
+                            double farVal = (normalizedVal - 0.8) / 0.2;  // 归一化到[0,1]
+                            enhancedVal = 0.8 + farVal * 0.2;  // 映射到[0.8, 1.0]
+                        }
+                        
+                        // 进一步应用伽马校正增强中等亮度区域
+                        double gamma = 0.7;  // 小于1的伽马值增强中等亮度
+                        enhancedVal = std::pow(enhancedVal, gamma);
+                        
+                        // 应用直方图均衡化的影响（混合）
+                        int binIndex = static_cast<int>(normalizedVal * (histSize - 1));
+                        binIndex = std::max(0, std::min(histSize - 1, binIndex));
+                        double histEqualizedVal = cdf[binIndex];
+                        
+                        // 混合增强值和直方图均衡化值
+                        double finalVal = enhancedVal * 0.7 + histEqualizedVal * 0.3;
+                        
+                        // 转换到0-255范围并应用最终对比度增强
+                        int grayVal = static_cast<int>(finalVal * 255);
+                        
+                        // 应用局部对比度增强（类似于锐化）
+                        grayVal = std::max(0, std::min(255, static_cast<int>(grayVal * 1.2 - 25)));
+                        
+                        enhancedGrayImage.at<uchar>(i, j) = static_cast<uchar>(grayVal);
+                    }
+                }
+            }
+            
+            // 应用轻微的高斯模糊以减少噪声，然后再次增强对比度
+            cv::Mat blurred;
+            cv::GaussianBlur(enhancedGrayImage, blurred, cv::Size(3, 3), 0.5);
+            
+            // 最终对比度增强
+            cv::Mat finalEnhanced;
+            blurred.convertTo(finalEnhanced, CV_8U, 1.3, -30);  // 增强对比度并减少亮度偏移
+            
+            // 确保黑色区域保持黑色
+            cv::Mat zeroMask = depthImage == 0;
+            finalEnhanced.setTo(0, zeroMask);
+            
+            Logger::debug("Generated enhanced grayscale depth image with advanced contrast enhancement");
+            return finalEnhanced;
+            
+        } else {
+            // 深度值都相同，创建单一灰度值图像
+            enhancedGrayImage = cv::Mat::zeros(depthImage.size(), CV_8U);
+            cv::Mat validMask = depthImage != 0;
+            enhancedGrayImage.setTo(128, validMask);  // 中等灰度
+        }
+        
+        return enhancedGrayImage;
+        
+    } catch (const std::exception& e) {
+        Logger::error("Exception in generating enhanced grayscale depth image: " + std::string(e.what()));
         return cv::Mat();
     }
 }
@@ -940,13 +1188,22 @@ void DepthImageGenerator::drawDepthLegend(cv::Mat& image, double minVal, double 
         colorLegend.copyTo(image(legendRect));
         
         // 添加刻度标签
-        cv::putText(image, std::to_string(maxVal), cv::Point(legendX + legendWidth + 5, legendY + 15),
+        cv::putText(image, "+" + std::to_string(maxVal), cv::Point(legendX + legendWidth + 5, legendY + 15),
                    cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 255), 1);
         cv::putText(image, std::to_string(minVal), cv::Point(legendX + legendWidth + 5, legendY + legendHeight),
                    cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 255), 1);
         
+        // 添加零平面标记
+        if (minVal < 0 && maxVal > 0) {
+            int zeroY = legendY + static_cast<int>(legendHeight * (maxVal / (maxVal - minVal)));
+            cv::line(image, cv::Point(legendX - 5, zeroY), cv::Point(legendX + legendWidth + 3, zeroY),
+                    cv::Scalar(255, 255, 255), 2);
+            cv::putText(image, "0 (plane)", cv::Point(legendX + legendWidth + 5, zeroY + 5),
+                       cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 255), 1);
+        }
+        
         // 添加标题
-        cv::putText(image, "Depth", cv::Point(legendX - 5, legendY - 10),
+        cv::putText(image, "Rel.Depth", cv::Point(legendX - 15, legendY - 10),
                    cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1);
         
     } catch (const std::exception& e) {

@@ -55,6 +55,7 @@ public:
     // 深度信息可视化
     void setDepthVisualization(bool enable);  // 启用深度信息显示
     void setDepthColorMap(int colorMapType);  // 设置深度颜色映射类型
+    void setUsePlaneRelativeDepth(bool enable);  // 设置是否使用平面相对深度
     
     // ROI管理功能
     int addROI(const ImageROI& roi);  // 添加ROI，返回ROI ID
@@ -84,6 +85,7 @@ private:
     bool fitPlaneSimple(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud); // 简单统计方法
     void computeCameraFromPlane();
     void adjustDepthRangeForTransformedCloud(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud);
+    void adjustPlaneRelativeDepthRange(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud);  // 调整平面相对深度范围
     
     // 点云预处理方法
     pcl::PointCloud<pcl::PointXYZ>::Ptr preprocessPointCloud(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud);
@@ -99,6 +101,7 @@ private:
     
     // 深度信息可视化相关
     cv::Mat generateColorDepthImage(const cv::Mat& depthImage);  // 生成彩色深度图
+    cv::Mat generateEnhancedGrayscaleDepthImage(const cv::Mat& depthImage);  // 生成增强对比度的灰度深度图
     cv::Mat generateDepthInfoImage(const cv::Mat& depthImage);   // 生成带深度信息的图像
     void drawDepthLegend(cv::Mat& image, double minVal, double maxVal);  // 绘制深度图例
     
@@ -131,6 +134,8 @@ private:
     // 深度信息可视化相关
     bool enableDepthVisualization_;
     int depthColorMapType_;  // OpenCV颜色映射类型
+    bool usePlaneRelativeDepth_;  // 是否使用平面相对深度
+    float planeRelativeMinDepth_, planeRelativeMaxDepth_;  // 相对于拟合平面的深度范围
     
     // ROI管理
     std::vector<ImageROI> rois_;
