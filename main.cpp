@@ -76,11 +76,35 @@ int main(int argc, char* argv[]) {
     depthGenerator.setCameraPosition(0.0f, 0.0f, 0.0f);
     depthGenerator.setAutoFitPlane(true); // 启用修复后的自动平面拟合
     
+    // 启用深度信息可视化
+    depthGenerator.setDepthVisualization(true);
+    depthGenerator.setDepthColorMap(cv::COLORMAP_JET); // 使用JET颜色映射
+    
+    // 添加示例ROI（可选）
+    ImageROI roi1;
+    roi1.name = "Sample_ROI_1";
+    roi1.boundingBox = cv::Rect(400, 300, 200, 150);
+    roi1.color = cv::Scalar(0, 255, 0); // 绿色
+    int roiId1 = depthGenerator.addROI(roi1);
+    
+    ImageROI roi2;
+    roi2.name = "Sample_ROI_2";
+    roi2.boundingBox = cv::Rect(800, 500, 300, 200);
+    roi2.color = cv::Scalar(255, 0, 0); // 蓝色
+    int roiId2 = depthGenerator.addROI(roi2);
+    
+    Logger::info("Added sample ROIs with IDs: " + std::to_string(roiId1) + ", " + std::to_string(roiId2));
+    
     // 生成深度图像
     bool success = depthGenerator.generateDepthImage(inputCloudPath, outputImageDir);
     
     if (success) {
         Logger::info("Depth image conversion completed successfully!");
+        
+        // 演示点云分割功能（未来扩展）
+        // std::string segmentedOutputPath = outputImageDir + "/segmented_roi_" + std::to_string(roiId1) + ".ply";
+        // depthGenerator.segmentPointCloudByROI(roiId1, segmentedOutputPath);
+        
         return 0;
     } else {
         Logger::error("Depth image conversion failed!");

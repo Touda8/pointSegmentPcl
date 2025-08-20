@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <fstream>
 #include <pcl/common/transforms.h>
 #include <pcl/filters/filter.h>
 
@@ -24,11 +25,16 @@ DepthImageGenerator::DepthImageGenerator()
     , planeNormal_(0.0f, 0.0f, 1.0f)
     , planeCenter_(0.0f, 0.0f, 0.0f)
     , planeDistance_(0.0f)
+    , enableDepthVisualization_(true)
+    , depthColorMapType_(cv::COLORMAP_JET)
+    , nextROIId_(1)
+    , originalPointCloud_(new pcl::PointCloud<pcl::PointXYZ>)
 {
     Logger::debug("DepthImageGenerator initialized with default parameters");
     Logger::debug("Image size: " + std::to_string(imageWidth_) + "x" + std::to_string(imageHeight_));
     Logger::debug("Depth range: " + std::to_string(minDepth_) + " - " + std::to_string(maxDepth_));
     Logger::debug("Auto fit plane: " + std::string(autoFitPlane_ ? "enabled" : "disabled"));
+    Logger::debug("Depth visualization: " + std::string(enableDepthVisualization_ ? "enabled" : "disabled"));
 }
 
 DepthImageGenerator::~DepthImageGenerator() {
@@ -118,8 +124,14 @@ void DepthImageGenerator::setImageSize(int width, int height) {
     principalPointY_ = height / 2.0f;
     // 根据图像尺寸调整焦距
     focalLength_ = width * 0.8f;  // 经验值，约为图像宽度的0.8倍
+    
+    // 初始化像素到点云的映射数组
+    pixelToPointMap_.clear();
+    pixelToPointMap_.resize(height, std::vector<PixelToPointMapping>(width));
+    
     Logger::debug("Image size set to: " + std::to_string(width) + "x" + std::to_string(height));
     Logger::debug("Focal length adjusted to: " + std::to_string(focalLength_));
+    Logger::debug("Pixel to point mapping array initialized");
 }
 
 void DepthImageGenerator::setDepthRange(float minDepth, float maxDepth) {
@@ -158,6 +170,10 @@ bool DepthImageGenerator::loadPointCloud(const std::string& filePath, pcl::Point
         std::vector<int> indices;
         pcl::removeNaNFromPointCloud(*cloud, *cloud, indices);
 
+        // 保存原始点云的副本用于未来的点云分割
+        *originalPointCloud_ = *cloud;
+        Logger::debug("Original point cloud saved for future segmentation");
+
         // 分析点云坐标范围
         if (!cloud->empty()) {
             float minX = cloud->points[0].x, maxX = cloud->points[0].x;
@@ -192,6 +208,9 @@ bool DepthImageGenerator::projectToDepthImage(const pcl::PointCloud<pcl::PointXY
     try {
         // 初始化深度图像
         depthImage = cv::Mat::zeros(imageHeight_, imageWidth_, CV_32F);
+        
+        // 清空并初始化像素到点云映射
+        clearPixelToPointMapping();
 
         int validProjections = 0;
         int totalPoints = 0;
@@ -205,7 +224,8 @@ bool DepthImageGenerator::projectToDepthImage(const pcl::PointCloud<pcl::PointXY
         Logger::debug("Principal point: (" + std::to_string(principalPointX_) + ", " + std::to_string(principalPointY_) + ")");
         Logger::debug("Image size: " + std::to_string(imageWidth_) + "x" + std::to_string(imageHeight_));
         
-        for (const auto& point : cloud->points) {
+        for (size_t pointIndex = 0; pointIndex < cloud->points.size(); ++pointIndex) {
+            const auto& point = cloud->points[pointIndex];
             totalPoints++;
             
             // 检查点是否在深度范围内
@@ -229,6 +249,11 @@ bool DepthImageGenerator::projectToDepthImage(const pcl::PointCloud<pcl::PointXY
                 float currentDepth = depthImage.at<float>(v, u);
                 if (currentDepth == 0 || depth < currentDepth) {
                     depthImage.at<float>(v, u) = depth;  // 存储绝对深度值
+                    
+                    // 更新像素到点云的映射
+                    cv::Point3f worldCoord(point.x, point.y, point.z);
+                    updatePixelToPointMapping(u, v, static_cast<int>(pointIndex), depth, worldCoord);
+                    
                     validProjections++;
                 }
             } else {
@@ -334,22 +359,40 @@ void DepthImageGenerator::transformPointCloud(pcl::PointCloud<pcl::PointXYZ>::Pt
 
 bool DepthImageGenerator::saveDepthImage(const cv::Mat& depthImage, const std::string& outputPath) {
     try {
-        // 创建8位灰度图像用于保存
+        // 保存原始灰度深度图像
         cv::Mat depthImage8U;
         depthImage.convertTo(depthImage8U, CV_8U);
-
-        // 保存深度图像
+        
         if (!cv::imwrite(outputPath, depthImage8U)) {
             Logger::error("Failed to write depth image to: " + outputPath);
             return false;
         }
+        Logger::info("Grayscale depth image saved to: " + outputPath);
 
-        // 同时保存原始深度值（浮点格式）
+        // 保存原始深度值（浮点格式）
         std::string rawOutputPath = outputPath.substr(0, outputPath.find_last_of('.')) + "_raw.tiff";
         cv::imwrite(rawOutputPath, depthImage);
-
-        Logger::info("Depth image saved to: " + outputPath);
         Logger::info("Raw depth data saved to: " + rawOutputPath);
+
+        // 如果启用了深度可视化，保存彩色深度图
+        if (enableDepthVisualization_) {
+            // 保存彩色深度图
+            cv::Mat colorDepthImage = generateColorDepthImage(depthImage);
+            if (!colorDepthImage.empty()) {
+                std::string colorOutputPath = outputPath.substr(0, outputPath.find_last_of('.')) + "_color.png";
+                cv::imwrite(colorOutputPath, colorDepthImage);
+                Logger::info("Color depth image saved to: " + colorOutputPath);
+            }
+            
+            // 保存带信息的深度图
+            cv::Mat infoImage = generateDepthInfoImage(depthImage);
+            if (!infoImage.empty()) {
+                std::string infoOutputPath = outputPath.substr(0, outputPath.find_last_of('.')) + "_info.png";
+                cv::imwrite(infoOutputPath, infoImage);
+                Logger::info("Depth info image (with ROIs and legend) saved to: " + infoOutputPath);
+            }
+        }
+
         return true;
 
     } catch (const std::exception& e) {
@@ -791,6 +834,321 @@ bool DepthImageGenerator::fitPlaneRobustPCA(const pcl::PointCloud<pcl::PointXYZ>
         return false;
     } catch (...) {
         Logger::error("Unknown exception in robust PCA plane fitting");
+        return false;
+    }
+}
+
+// ========== 新增功能实现 ==========
+
+// 深度信息可视化设置
+void DepthImageGenerator::setDepthVisualization(bool enable) {
+    enableDepthVisualization_ = enable;
+    Logger::debug("Depth visualization " + std::string(enable ? "enabled" : "disabled"));
+}
+
+void DepthImageGenerator::setDepthColorMap(int colorMapType) {
+    depthColorMapType_ = colorMapType;
+    Logger::debug("Depth color map set to type: " + std::to_string(colorMapType));
+}
+
+// 生成彩色深度图
+cv::Mat DepthImageGenerator::generateColorDepthImage(const cv::Mat& depthImage) {
+    try {
+        cv::Mat colorDepthImage;
+        
+        // 首先归一化深度图到0-255范围
+        cv::Mat normalizedDepth;
+        double minVal, maxVal;
+        cv::minMaxLoc(depthImage, &minVal, &maxVal);
+        
+        if (maxVal > minVal) {
+            depthImage.convertTo(normalizedDepth, CV_8U, 255.0/(maxVal - minVal), -minVal * 255.0/(maxVal - minVal));
+        } else {
+            normalizedDepth = cv::Mat::zeros(depthImage.size(), CV_8U);
+        }
+        
+        // 应用颜色映射
+        cv::applyColorMap(normalizedDepth, colorDepthImage, depthColorMapType_);
+        
+        // 在黑色区域（无深度信息的地方）设置为黑色
+        cv::Mat mask = normalizedDepth == 0;
+        colorDepthImage.setTo(cv::Scalar(0, 0, 0), mask);
+        
+        Logger::debug("Generated color depth image with color map type: " + std::to_string(depthColorMapType_));
+        return colorDepthImage;
+        
+    } catch (const std::exception& e) {
+        Logger::error("Exception in generating color depth image: " + std::string(e.what()));
+        return cv::Mat();
+    }
+}
+
+// 生成带深度信息的图像
+cv::Mat DepthImageGenerator::generateDepthInfoImage(const cv::Mat& depthImage) {
+    try {
+        cv::Mat infoImage = generateColorDepthImage(depthImage);
+        if (infoImage.empty()) {
+            return cv::Mat();
+        }
+        
+        // 绘制ROI
+        drawROIs(infoImage);
+        
+        // 添加深度图例
+        double minVal, maxVal;
+        cv::minMaxLoc(depthImage, &minVal, &maxVal);
+        drawDepthLegend(infoImage, minVal, maxVal);
+        
+        // 添加统计信息文本
+        int nonZeroPixels = cv::countNonZero(depthImage > 0);
+        std::string statsText = "Points: " + std::to_string(nonZeroPixels) + 
+                               " | Depth: " + std::to_string(minVal) + "-" + std::to_string(maxVal);
+        
+        cv::putText(infoImage, statsText, cv::Point(10, 30), 
+                   cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 255), 2);
+        
+        Logger::debug("Generated depth info image with statistics and ROIs");
+        return infoImage;
+        
+    } catch (const std::exception& e) {
+        Logger::error("Exception in generating depth info image: " + std::string(e.what()));
+        return cv::Mat();
+    }
+}
+
+// 绘制深度图例
+void DepthImageGenerator::drawDepthLegend(cv::Mat& image, double minVal, double maxVal) {
+    try {
+        int legendWidth = 20;
+        int legendHeight = 200;
+        int legendX = image.cols - legendWidth - 20;
+        int legendY = 50;
+        
+        // 创建渐变色带
+        cv::Mat legendBar(legendHeight, legendWidth, CV_8U);
+        for (int i = 0; i < legendHeight; ++i) {
+            int value = static_cast<int>(255.0 * i / legendHeight);
+            legendBar.row(legendHeight - 1 - i) = value; // 反向，上方为最大值
+        }
+        
+        // 应用颜色映射
+        cv::Mat colorLegend;
+        cv::applyColorMap(legendBar, colorLegend, depthColorMapType_);
+        
+        // 将图例复制到主图像
+        cv::Rect legendRect(legendX, legendY, legendWidth, legendHeight);
+        colorLegend.copyTo(image(legendRect));
+        
+        // 添加刻度标签
+        cv::putText(image, std::to_string(maxVal), cv::Point(legendX + legendWidth + 5, legendY + 15),
+                   cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 255), 1);
+        cv::putText(image, std::to_string(minVal), cv::Point(legendX + legendWidth + 5, legendY + legendHeight),
+                   cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 255), 1);
+        
+        // 添加标题
+        cv::putText(image, "Depth", cv::Point(legendX - 5, legendY - 10),
+                   cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1);
+        
+    } catch (const std::exception& e) {
+        Logger::error("Exception in drawing depth legend: " + std::string(e.what()));
+    }
+}
+
+// ROI管理功能
+int DepthImageGenerator::addROI(const ImageROI& roi) {
+    ImageROI newROI = roi;
+    newROI.id = nextROIId_++;
+    rois_.push_back(newROI);
+    Logger::debug("Added ROI with ID: " + std::to_string(newROI.id) + ", name: " + newROI.name);
+    return newROI.id;
+}
+
+bool DepthImageGenerator::removeROI(int roiId) {
+    auto it = std::find_if(rois_.begin(), rois_.end(), 
+                          [roiId](const ImageROI& roi) { return roi.id == roiId; });
+    if (it != rois_.end()) {
+        Logger::debug("Removed ROI with ID: " + std::to_string(roiId));
+        rois_.erase(it);
+        return true;
+    }
+    Logger::warning("ROI with ID " + std::to_string(roiId) + " not found for removal");
+    return false;
+}
+
+void DepthImageGenerator::clearAllROIs() {
+    rois_.clear();
+    Logger::debug("Cleared all ROIs");
+}
+
+std::vector<ImageROI> DepthImageGenerator::getAllROIs() const {
+    return rois_;
+}
+
+// 绘制ROI
+void DepthImageGenerator::drawROIs(cv::Mat& image) const {
+    for (const auto& roi : rois_) {
+        // 绘制边界框
+        cv::rectangle(image, roi.boundingBox, roi.color, 2);
+        
+        // 绘制轮廓（如果有）
+        if (!roi.contour.empty()) {
+            std::vector<std::vector<cv::Point>> contours = {roi.contour};
+            cv::drawContours(image, contours, -1, roi.color, 2);
+        }
+        
+        // 添加ROI标签
+        cv::Point labelPos(roi.boundingBox.x, roi.boundingBox.y - 5);
+        std::string label = roi.name.empty() ? ("ROI_" + std::to_string(roi.id)) : roi.name;
+        cv::putText(image, label, labelPos, cv::FONT_HERSHEY_SIMPLEX, 0.6, roi.color, 2);
+    }
+}
+
+// 像素到点云映射相关方法
+void DepthImageGenerator::updatePixelToPointMapping(int u, int v, int pointIndex, float depth, const cv::Point3f& worldCoord) {
+    if (v >= 0 && v < static_cast<int>(pixelToPointMap_.size()) && 
+        u >= 0 && u < static_cast<int>(pixelToPointMap_[v].size())) {
+        pixelToPointMap_[v][u].pointIndex = pointIndex;
+        pixelToPointMap_[v][u].depth = depth;
+        pixelToPointMap_[v][u].worldCoord = worldCoord;
+    }
+}
+
+void DepthImageGenerator::clearPixelToPointMapping() {
+    for (auto& row : pixelToPointMap_) {
+        for (auto& pixel : row) {
+            pixel = PixelToPointMapping(); // 重置为默认值
+        }
+    }
+}
+
+// 判断点是否在ROI内
+bool DepthImageGenerator::isPointInROI(const cv::Point& point, const ImageROI& roi) const {
+    // 首先检查边界框
+    if (!roi.boundingBox.contains(point)) {
+        return false;
+    }
+    
+    // 如果有轮廓，检查点是否在轮廓内
+    if (!roi.contour.empty()) {
+        double result = cv::pointPolygonTest(roi.contour, point, false);
+        return result >= 0; // 0表示在边界上，>0表示在内部
+    }
+    
+    return true; // 如果只有边界框，则已经通过检查
+}
+
+// 获取ROI内的点索引（未来扩展接口）
+std::vector<int> DepthImageGenerator::getPointIndicesInROI(int roiId) const {
+    std::vector<int> pointIndices;
+    
+    auto it = std::find_if(rois_.begin(), rois_.end(), 
+                          [roiId](const ImageROI& roi) { return roi.id == roiId; });
+    if (it == rois_.end()) {
+        Logger::warning("ROI with ID " + std::to_string(roiId) + " not found");
+        return pointIndices;
+    }
+    
+    const ImageROI& roi = *it;
+    
+    // 遍历ROI区域内的像素
+    for (int v = roi.boundingBox.y; v < roi.boundingBox.y + roi.boundingBox.height; ++v) {
+        for (int u = roi.boundingBox.x; u < roi.boundingBox.x + roi.boundingBox.width; ++u) {
+            if (v >= 0 && v < static_cast<int>(pixelToPointMap_.size()) && 
+                u >= 0 && u < static_cast<int>(pixelToPointMap_[v].size())) {
+                
+                cv::Point pixel(u, v);
+                if (isPointInROI(pixel, roi)) {
+                    const PixelToPointMapping& mapping = pixelToPointMap_[v][u];
+                    if (mapping.pointIndex >= 0) {
+                        pointIndices.push_back(mapping.pointIndex);
+                    }
+                }
+            }
+        }
+    }
+    
+    Logger::debug("Found " + std::to_string(pointIndices.size()) + " points in ROI " + std::to_string(roiId));
+    return pointIndices;
+}
+
+// ROI文件保存/加载（简单的JSON格式）
+bool DepthImageGenerator::saveROIs(const std::string& filePath) const {
+    try {
+        std::ofstream file(filePath);
+        if (!file.is_open()) {
+            Logger::error("Could not open file for writing ROIs: " + filePath);
+            return false;
+        }
+        
+        file << "{\n";
+        file << "  \"rois\": [\n";
+        
+        for (size_t i = 0; i < rois_.size(); ++i) {
+            const auto& roi = rois_[i];
+            file << "    {\n";
+            file << "      \"id\": " << roi.id << ",\n";
+            file << "      \"name\": \"" << roi.name << "\",\n";
+            file << "      \"boundingBox\": [" << roi.boundingBox.x << ", " << roi.boundingBox.y 
+                 << ", " << roi.boundingBox.width << ", " << roi.boundingBox.height << "],\n";
+            file << "      \"minDepth\": " << roi.minDepth << ",\n";
+            file << "      \"maxDepth\": " << roi.maxDepth << "\n";
+            file << "    }";
+            if (i < rois_.size() - 1) file << ",";
+            file << "\n";
+        }
+        
+        file << "  ]\n";
+        file << "}\n";
+        
+        Logger::debug("Saved " + std::to_string(rois_.size()) + " ROIs to: " + filePath);
+        return true;
+        
+    } catch (const std::exception& e) {
+        Logger::error("Exception in saving ROIs: " + std::string(e.what()));
+        return false;
+    }
+}
+
+bool DepthImageGenerator::loadROIs(const std::string& filePath) {
+    // 简化实现，未来可以使用JSON库
+    Logger::info("ROI loading from file not yet implemented. Use addROI() method instead.");
+    return false;
+}
+
+// 点云分割接口（预留实现）
+bool DepthImageGenerator::segmentPointCloudByROI(int roiId, const std::string& outputPath) {
+    try {
+        std::vector<int> pointIndices = getPointIndicesInROI(roiId);
+        if (pointIndices.empty()) {
+            Logger::warning("No points found in ROI " + std::to_string(roiId));
+            return false;
+        }
+        
+        // 创建分割后的点云
+        pcl::PointCloud<pcl::PointXYZ>::Ptr segmentedCloud(new pcl::PointCloud<pcl::PointXYZ>);
+        
+        for (int index : pointIndices) {
+            if (index >= 0 && index < static_cast<int>(originalPointCloud_->size())) {
+                segmentedCloud->points.push_back(originalPointCloud_->points[index]);
+            }
+        }
+        
+        segmentedCloud->width = segmentedCloud->points.size();
+        segmentedCloud->height = 1;
+        segmentedCloud->is_dense = false;
+        
+        // 保存分割后的点云
+        if (pcl::io::savePLYFile(outputPath, *segmentedCloud) == 0) {
+            Logger::info("Segmented point cloud saved to: " + outputPath);
+            Logger::info("Segmented " + std::to_string(segmentedCloud->size()) + " points from ROI " + std::to_string(roiId));
+            return true;
+        } else {
+            Logger::error("Failed to save segmented point cloud to: " + outputPath);
+            return false;
+        }
+        
+    } catch (const std::exception& e) {
+        Logger::error("Exception in segmenting point cloud by ROI: " + std::string(e.what()));
         return false;
     }
 }

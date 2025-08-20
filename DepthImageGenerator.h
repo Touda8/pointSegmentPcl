@@ -1,5 +1,8 @@
 #pragma once
 #include <string>
+#include <vector>
+#include <map>
+#include <fstream>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl/io/ply_io.h>
@@ -12,6 +15,27 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include "Logger.h"
+
+// ROI结构定义
+struct ImageROI {
+    int id;
+    std::string name;
+    cv::Rect boundingBox;  // ROI的边界框
+    std::vector<cv::Point> contour;  // ROI的轮廓（支持不规则形状）
+    double minDepth, maxDepth;  // ROI内的深度范围
+    cv::Scalar color;  // ROI显示颜色
+    
+    ImageROI() : id(-1), minDepth(0), maxDepth(0), color(cv::Scalar(0,255,0)) {}
+};
+
+// 像素到点云的映射信息
+struct PixelToPointMapping {
+    int pointIndex;  // 原始点云中的点索引
+    float depth;     // 深度值
+    cv::Point3f worldCoord;  // 世界坐标
+    
+    PixelToPointMapping() : pointIndex(-1), depth(0) {}
+};
 
 class DepthImageGenerator {
 public:
@@ -27,6 +51,22 @@ public:
     void setCameraPosition(float x, float y, float z);
     void setCameraOrientation(float pitch, float yaw, float roll);
     void setAutoFitPlane(bool enable); // 启用/禁用自动平面拟合
+    
+    // 深度信息可视化
+    void setDepthVisualization(bool enable);  // 启用深度信息显示
+    void setDepthColorMap(int colorMapType);  // 设置深度颜色映射类型
+    
+    // ROI管理功能
+    int addROI(const ImageROI& roi);  // 添加ROI，返回ROI ID
+    bool removeROI(int roiId);        // 删除ROI
+    void clearAllROIs();              // 清除所有ROI
+    std::vector<ImageROI> getAllROIs() const;  // 获取所有ROI
+    bool saveROIs(const std::string& filePath) const;  // 保存ROI到文件
+    bool loadROIs(const std::string& filePath);        // 从文件加载ROI
+    
+    // 未来扩展：点云分割接口（当前为预留接口）
+    bool segmentPointCloudByROI(int roiId, const std::string& outputPath);
+    std::vector<int> getPointIndicesInROI(int roiId) const;  // 获取ROI内的点索引
 
 private:
     // 加载点云
@@ -56,6 +96,19 @@ private:
     
     // 归一化深度值到0-255范围
     void normalizeDepthImage(cv::Mat& depthImage);
+    
+    // 深度信息可视化相关
+    cv::Mat generateColorDepthImage(const cv::Mat& depthImage);  // 生成彩色深度图
+    cv::Mat generateDepthInfoImage(const cv::Mat& depthImage);   // 生成带深度信息的图像
+    void drawDepthLegend(cv::Mat& image, double minVal, double maxVal);  // 绘制深度图例
+    
+    // ROI相关内部方法
+    void drawROIs(cv::Mat& image) const;  // 在图像上绘制ROI
+    bool isPointInROI(const cv::Point& point, const ImageROI& roi) const;  // 判断点是否在ROI内
+    
+    // 像素到点云映射相关
+    void updatePixelToPointMapping(int u, int v, int pointIndex, float depth, const cv::Point3f& worldCoord);
+    void clearPixelToPointMapping();
 
 private:
     int imageWidth_;
@@ -74,4 +127,16 @@ private:
     Eigen::Vector3f planeNormal_;
     Eigen::Vector3f planeCenter_;
     float planeDistance_;
+    
+    // 深度信息可视化相关
+    bool enableDepthVisualization_;
+    int depthColorMapType_;  // OpenCV颜色映射类型
+    
+    // ROI管理
+    std::vector<ImageROI> rois_;
+    int nextROIId_;
+    
+    // 像素到点云的映射（用于未来的点云分割）
+    std::vector<std::vector<PixelToPointMapping>> pixelToPointMap_;  // [row][col]
+    pcl::PointCloud<pcl::PointXYZ>::Ptr originalPointCloud_;  // 保存原始点云用于分割
 };
