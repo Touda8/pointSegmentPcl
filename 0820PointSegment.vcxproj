@@ -131,12 +131,12 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Logger.cpp" />
     <ClCompile Include="FileConverter.cpp" />
-    <ClCompile Include="DepthImageGenerator.cpp" />
+    <ClCompile Include="TemplatePointCloudProcessor.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Logger.h" />
     <ClInclude Include="FileConverter.h" />
-    <ClInclude Include="DepthImageGenerator.h" />
+    <ClInclude Include="TemplatePointCloudProcessor.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

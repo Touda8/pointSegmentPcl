@@ -1,4 +1,4 @@
-#include "DepthImageGenerator.h"
+#include "TemplatePointCloudProcessor.h"
 #include <iostream>
 #include <algorithm>
 #include <cmath>
@@ -8,7 +8,7 @@
 #include <pcl/common/transforms.h>
 #include <pcl/filters/filter.h>
 
-DepthImageGenerator::DepthImageGenerator()
+TemplatePointCloudProcessor::TemplatePointCloudProcessor()
     : imageWidth_(640)
     , imageHeight_(480)
     , minDepth_(0.1f)
@@ -36,7 +36,7 @@ DepthImageGenerator::DepthImageGenerator()
     , nextROIId_(1)
     , originalPointCloud_(new pcl::PointCloud<pcl::PointXYZ>)
 {
-    Logger::debug("DepthImageGenerator initialized with default parameters");
+    Logger::debug("TemplatePointCloudProcessor initialized with default parameters");
     Logger::debug("Image size: " + std::to_string(imageWidth_) + "x" + std::to_string(imageHeight_));
     Logger::debug("Depth range: " + std::to_string(minDepth_) + " - " + std::to_string(maxDepth_));
     Logger::debug("Auto fit plane: " + std::string(autoFitPlane_ ? "enabled" : "disabled"));
@@ -44,7 +44,7 @@ DepthImageGenerator::DepthImageGenerator()
 }
 
 // 核心功能：模板点云预处理 - 拟合平面并生成配置文件
-bool DepthImageGenerator::processTemplatePointCloud(const std::string& templateCloudPath, const std::string& configOutputPath) {
+bool TemplatePointCloudProcessor::processTemplatePointCloud(const std::string& templateCloudPath, const std::string& configOutputPath) {
     try {
         Logger::info("Starting template point cloud preprocessing...");
         Logger::info("Template cloud: " + templateCloudPath);
@@ -166,11 +166,11 @@ bool DepthImageGenerator::processTemplatePointCloud(const std::string& templateC
     }
 }
 
-DepthImageGenerator::~DepthImageGenerator() {
-    Logger::debug("DepthImageGenerator destroyed");
+TemplatePointCloudProcessor::~TemplatePointCloudProcessor() {
+    Logger::debug("TemplatePointCloudProcessor destroyed");
 }
 
-bool DepthImageGenerator::generateDepthImage(const std::string& inputCloudPath, const std::string& outputDir) {
+bool TemplatePointCloudProcessor::generateDepthImage(const std::string& inputCloudPath, const std::string& outputDir) {
     try {
         Logger::info("Starting depth image generation");
         Logger::info("Input cloud: " + inputCloudPath);
@@ -272,7 +272,7 @@ bool DepthImageGenerator::generateDepthImage(const std::string& inputCloudPath, 
     }
 }
 
-void DepthImageGenerator::setImageSize(int width, int height) {
+void TemplatePointCloudProcessor::setImageSize(int width, int height) {
     imageWidth_ = width;
     imageHeight_ = height;
     principalPointX_ = width / 2.0f;
@@ -289,32 +289,32 @@ void DepthImageGenerator::setImageSize(int width, int height) {
     Logger::debug("Pixel to point mapping array initialized");
 }
 
-void DepthImageGenerator::setDepthRange(float minDepth, float maxDepth) {
+void TemplatePointCloudProcessor::setDepthRange(float minDepth, float maxDepth) {
     minDepth_ = minDepth;
     maxDepth_ = maxDepth;
     Logger::debug("Depth range set to: " + std::to_string(minDepth) + " - " + std::to_string(maxDepth));
 }
 
-void DepthImageGenerator::setCameraPosition(float x, float y, float z) {
+void TemplatePointCloudProcessor::setCameraPosition(float x, float y, float z) {
     cameraX_ = x;
     cameraY_ = y;
     cameraZ_ = z;
     Logger::debug("Camera position set to: (" + std::to_string(x) + ", " + std::to_string(y) + ", " + std::to_string(z) + ")");
 }
 
-void DepthImageGenerator::setCameraOrientation(float pitch, float yaw, float roll) {
+void TemplatePointCloudProcessor::setCameraOrientation(float pitch, float yaw, float roll) {
     cameraPitch_ = pitch;
     cameraYaw_ = yaw;
     cameraRoll_ = roll;
     Logger::debug("Camera orientation set to: pitch=" + std::to_string(pitch) + ", yaw=" + std::to_string(yaw) + ", roll=" + std::to_string(roll));
 }
 
-void DepthImageGenerator::setAutoFitPlane(bool enable) {
+void TemplatePointCloudProcessor::setAutoFitPlane(bool enable) {
     autoFitPlane_ = enable;
     Logger::debug("Auto fit plane " + std::string(enable ? "enabled" : "disabled"));
 }
 
-bool DepthImageGenerator::loadPointCloud(const std::string& filePath, pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) {
+bool TemplatePointCloudProcessor::loadPointCloud(const std::string& filePath, pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) {
     try {
         if (pcl::io::loadPLYFile<pcl::PointXYZ>(filePath, *cloud) == -1) {
             Logger::error("Could not read PLY file: " + filePath);
@@ -359,7 +359,7 @@ bool DepthImageGenerator::loadPointCloud(const std::string& filePath, pcl::Point
     }
 }
 
-bool DepthImageGenerator::projectToDepthImage(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud, cv::Mat& depthImage) {
+bool TemplatePointCloudProcessor::projectToDepthImage(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud, cv::Mat& depthImage) {
     try {
         // 初始化深度图像
         depthImage = cv::Mat::zeros(imageHeight_, imageWidth_, CV_32F);
@@ -433,7 +433,7 @@ bool DepthImageGenerator::projectToDepthImage(const pcl::PointCloud<pcl::PointXY
     }
 }
 
-void DepthImageGenerator::transformPointCloud(pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) {
+void TemplatePointCloudProcessor::transformPointCloud(pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) {
     try {
         if (autoFitPlane_) {
             // 基于平面拟合结果创建变换矩阵
@@ -516,7 +516,7 @@ void DepthImageGenerator::transformPointCloud(pcl::PointCloud<pcl::PointXYZ>::Pt
     }
 }
 
-bool DepthImageGenerator::saveDepthImage(const cv::Mat& depthImage, const std::string& outputPath) {
+bool TemplatePointCloudProcessor::saveDepthImage(const cv::Mat& depthImage, const std::string& outputPath) {
     try {
         // 保存原始灰度深度图像
         cv::Mat depthImage8U;
@@ -568,7 +568,7 @@ bool DepthImageGenerator::saveDepthImage(const cv::Mat& depthImage, const std::s
     }
 }
 
-bool DepthImageGenerator::createOutputDirectory(const std::string& dirPath) {
+bool TemplatePointCloudProcessor::createOutputDirectory(const std::string& dirPath) {
     try {
         std::string mkdirCmd = "mkdir \"" + dirPath + "\" 2>nul";
         system(mkdirCmd.c_str());
@@ -578,7 +578,7 @@ bool DepthImageGenerator::createOutputDirectory(const std::string& dirPath) {
     }
 }
 
-void DepthImageGenerator::normalizeDepthImage(cv::Mat& depthImage) {
+void TemplatePointCloudProcessor::normalizeDepthImage(cv::Mat& depthImage) {
     try {
         // 找到非零的最小值和最大值
         double minVal, maxVal;
@@ -605,7 +605,7 @@ void DepthImageGenerator::normalizeDepthImage(cv::Mat& depthImage) {
     }
 }
 
-bool DepthImageGenerator::fitPlaneToPointCloud(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) {
+bool TemplatePointCloudProcessor::fitPlaneToPointCloud(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) {
     try {
         // 方法1: 使用PCA进行平面拟合（更轻量级，避免RANSAC的内存问题）
         Logger::debug("Using PCA-based plane fitting for better memory efficiency");
@@ -668,7 +668,7 @@ bool DepthImageGenerator::fitPlaneToPointCloud(const pcl::PointCloud<pcl::PointX
     }
 }
 
-void DepthImageGenerator::computeCameraFromPlane() {
+void TemplatePointCloudProcessor::computeCameraFromPlane() {
     try {
         Logger::debug("Computing optimal camera position from fitted plane");
         
@@ -733,7 +733,7 @@ void DepthImageGenerator::computeCameraFromPlane() {
     }
 }
 
-bool DepthImageGenerator::fitPlaneSimple(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) {
+bool TemplatePointCloudProcessor::fitPlaneSimple(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) {
     try {
         Logger::debug("Using simple statistical method for plane fitting (memory-safe)");
         
@@ -812,7 +812,7 @@ bool DepthImageGenerator::fitPlaneSimple(const pcl::PointCloud<pcl::PointXYZ>::P
     }
 }
 
-void DepthImageGenerator::adjustDepthRangeForTransformedCloud(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) {
+void TemplatePointCloudProcessor::adjustDepthRangeForTransformedCloud(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) {
     try {
         Logger::debug("Adjusting depth range based on transformed point cloud");
         
@@ -852,7 +852,7 @@ void DepthImageGenerator::adjustDepthRangeForTransformedCloud(const pcl::PointCl
     }
 }
 
-void DepthImageGenerator::adjustPlaneRelativeDepthRange(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) {
+void TemplatePointCloudProcessor::adjustPlaneRelativeDepthRange(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) {
     try {
         Logger::debug("Adjusting plane relative depth range based on point cloud");
         
@@ -898,7 +898,7 @@ void DepthImageGenerator::adjustPlaneRelativeDepthRange(const pcl::PointCloud<pc
     }
 }
 
-pcl::PointCloud<pcl::PointXYZ>::Ptr DepthImageGenerator::preprocessPointCloud(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) {
+pcl::PointCloud<pcl::PointXYZ>::Ptr TemplatePointCloudProcessor::preprocessPointCloud(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) {
     try {
         Logger::debug("Preprocessing point cloud for robust plane fitting");
         
@@ -987,7 +987,7 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr DepthImageGenerator::preprocessPointCloud(co
     }
 }
 
-bool DepthImageGenerator::fitPlaneRobustPCA(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) {
+bool TemplatePointCloudProcessor::fitPlaneRobustPCA(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) {
     try {
         Logger::debug("Using robust PCA-based plane fitting");
         
@@ -1054,23 +1054,23 @@ bool DepthImageGenerator::fitPlaneRobustPCA(const pcl::PointCloud<pcl::PointXYZ>
 // ========== 新增功能实现 ==========
 
 // 深度信息可视化设置
-void DepthImageGenerator::setDepthVisualization(bool enable) {
+void TemplatePointCloudProcessor::setDepthVisualization(bool enable) {
     enableDepthVisualization_ = enable;
     Logger::debug("Depth visualization " + std::string(enable ? "enabled" : "disabled"));
 }
 
-void DepthImageGenerator::setDepthColorMap(int colorMapType) {
+void TemplatePointCloudProcessor::setDepthColorMap(int colorMapType) {
     depthColorMapType_ = colorMapType;
     Logger::debug("Depth color map set to type: " + std::to_string(colorMapType));
 }
 
-void DepthImageGenerator::setUsePlaneRelativeDepth(bool enable) {
+void TemplatePointCloudProcessor::setUsePlaneRelativeDepth(bool enable) {
     usePlaneRelativeDepth_ = enable;
     Logger::debug("Use plane relative depth " + std::string(enable ? "enabled" : "disabled"));
 }
 
 // 生成彩色深度图
-cv::Mat DepthImageGenerator::generateColorDepthImage(const cv::Mat& depthImage) {
+cv::Mat TemplatePointCloudProcessor::generateColorDepthImage(const cv::Mat& depthImage) {
     try {
         cv::Mat colorDepthImage;
         
@@ -1147,7 +1147,7 @@ cv::Mat DepthImageGenerator::generateColorDepthImage(const cv::Mat& depthImage) 
 }
 
 // 生成增强对比度的灰度深度图（专为分割优化）
-cv::Mat DepthImageGenerator::generateEnhancedGrayscaleDepthImage(const cv::Mat& depthImage) {
+cv::Mat TemplatePointCloudProcessor::generateEnhancedGrayscaleDepthImage(const cv::Mat& depthImage) {
     try {
         cv::Mat enhancedGrayImage;
         
@@ -1275,7 +1275,7 @@ cv::Mat DepthImageGenerator::generateEnhancedGrayscaleDepthImage(const cv::Mat& 
 }
 
 // 生成带深度信息的图像
-cv::Mat DepthImageGenerator::generateDepthInfoImage(const cv::Mat& depthImage) {
+cv::Mat TemplatePointCloudProcessor::generateDepthInfoImage(const cv::Mat& depthImage) {
     try {
         cv::Mat infoImage = generateColorDepthImage(depthImage);
         if (infoImage.empty()) {
@@ -1308,7 +1308,7 @@ cv::Mat DepthImageGenerator::generateDepthInfoImage(const cv::Mat& depthImage) {
 }
 
 // 绘制深度图例
-void DepthImageGenerator::drawDepthLegend(cv::Mat& image, double minVal, double maxVal) {
+void TemplatePointCloudProcessor::drawDepthLegend(cv::Mat& image, double minVal, double maxVal) {
     try {
         int legendWidth = 20;
         int legendHeight = 200;
@@ -1355,7 +1355,7 @@ void DepthImageGenerator::drawDepthLegend(cv::Mat& image, double minVal, double 
 }
 
 // ROI管理功能
-int DepthImageGenerator::addROI(const ImageROI& roi) {
+int TemplatePointCloudProcessor::addROI(const ImageROI& roi) {
     ImageROI newROI = roi;
     newROI.id = nextROIId_++;
     rois_.push_back(newROI);
@@ -1363,7 +1363,7 @@ int DepthImageGenerator::addROI(const ImageROI& roi) {
     return newROI.id;
 }
 
-bool DepthImageGenerator::removeROI(int roiId) {
+bool TemplatePointCloudProcessor::removeROI(int roiId) {
     auto it = std::find_if(rois_.begin(), rois_.end(), 
                           [roiId](const ImageROI& roi) { return roi.id == roiId; });
     if (it != rois_.end()) {
@@ -1375,17 +1375,17 @@ bool DepthImageGenerator::removeROI(int roiId) {
     return false;
 }
 
-void DepthImageGenerator::clearAllROIs() {
+void TemplatePointCloudProcessor::clearAllROIs() {
     rois_.clear();
     Logger::debug("Cleared all ROIs");
 }
 
-std::vector<ImageROI> DepthImageGenerator::getAllROIs() const {
+std::vector<ImageROI> TemplatePointCloudProcessor::getAllROIs() const {
     return rois_;
 }
 
 // 绘制ROI
-void DepthImageGenerator::drawROIs(cv::Mat& image) const {
+void TemplatePointCloudProcessor::drawROIs(cv::Mat& image) const {
     for (const auto& roi : rois_) {
         // 绘制边界框
         cv::rectangle(image, roi.boundingBox, roi.color, 2);
@@ -1404,7 +1404,7 @@ void DepthImageGenerator::drawROIs(cv::Mat& image) const {
 }
 
 // 像素到点云映射相关方法
-void DepthImageGenerator::updatePixelToPointMapping(int u, int v, int pointIndex, float depth, const cv::Point3f& worldCoord) {
+void TemplatePointCloudProcessor::updatePixelToPointMapping(int u, int v, int pointIndex, float depth, const cv::Point3f& worldCoord) {
     if (v >= 0 && v < static_cast<int>(pixelToPointMap_.size()) && 
         u >= 0 && u < static_cast<int>(pixelToPointMap_[v].size())) {
         pixelToPointMap_[v][u].pointIndex = pointIndex;
@@ -1413,7 +1413,7 @@ void DepthImageGenerator::updatePixelToPointMapping(int u, int v, int pointIndex
     }
 }
 
-void DepthImageGenerator::clearPixelToPointMapping() {
+void TemplatePointCloudProcessor::clearPixelToPointMapping() {
     for (auto& row : pixelToPointMap_) {
         for (auto& pixel : row) {
             pixel = PixelToPointMapping(); // 重置为默认值
@@ -1422,7 +1422,7 @@ void DepthImageGenerator::clearPixelToPointMapping() {
 }
 
 // 判断点是否在ROI内
-bool DepthImageGenerator::isPointInROI(const cv::Point& point, const ImageROI& roi) const {
+bool TemplatePointCloudProcessor::isPointInROI(const cv::Point& point, const ImageROI& roi) const {
     // 首先检查边界框
     if (!roi.boundingBox.contains(point)) {
         return false;
@@ -1438,7 +1438,7 @@ bool DepthImageGenerator::isPointInROI(const cv::Point& point, const ImageROI& r
 }
 
 // 获取ROI内的点索引（未来扩展接口）
-std::vector<int> DepthImageGenerator::getPointIndicesInROI(int roiId) const {
+std::vector<int> TemplatePointCloudProcessor::getPointIndicesInROI(int roiId) const {
     std::vector<int> pointIndices;
     
     auto it = std::find_if(rois_.begin(), rois_.end(), 
@@ -1472,7 +1472,7 @@ std::vector<int> DepthImageGenerator::getPointIndicesInROI(int roiId) const {
 }
 
 // ROI文件保存/加载（简单的JSON格式）
-bool DepthImageGenerator::saveROIs(const std::string& filePath) const {
+bool TemplatePointCloudProcessor::saveROIs(const std::string& filePath) const {
     try {
         std::ofstream file(filePath);
         if (!file.is_open()) {
@@ -1509,14 +1509,14 @@ bool DepthImageGenerator::saveROIs(const std::string& filePath) const {
     }
 }
 
-bool DepthImageGenerator::loadROIs(const std::string& filePath) {
+bool TemplatePointCloudProcessor::loadROIs(const std::string& filePath) {
     // 简化实现，未来可以使用JSON库
     Logger::info("ROI loading from file not yet implemented. Use addROI() method instead.");
     return false;
 }
 
 // 点云分割接口（预留实现）
-bool DepthImageGenerator::segmentPointCloudByROI(int roiId, const std::string& outputPath) {
+bool TemplatePointCloudProcessor::segmentPointCloudByROI(int roiId, const std::string& outputPath) {
     try {
         std::vector<int> pointIndices = getPointIndicesInROI(roiId);
         if (pointIndices.empty()) {
@@ -1554,7 +1554,7 @@ bool DepthImageGenerator::segmentPointCloudByROI(int roiId, const std::string& o
 }
 
 // 保存相机配置到文件
-bool DepthImageGenerator::saveCameraConfiguration(const std::string& configPath) const {
+bool TemplatePointCloudProcessor::saveCameraConfiguration(const std::string& configPath) const {
     try {
         std::ofstream configFile(configPath);
         if (!configFile.is_open()) {
@@ -1629,7 +1629,7 @@ bool DepthImageGenerator::saveCameraConfiguration(const std::string& configPath)
 }
 
 // 从文件加载相机配置
-bool DepthImageGenerator::loadCameraConfiguration(const std::string& configPath) {
+bool TemplatePointCloudProcessor::loadCameraConfiguration(const std::string& configPath) {
     try {
         std::ifstream configFile(configPath);
         if (!configFile.is_open()) {
@@ -1727,7 +1727,7 @@ bool DepthImageGenerator::loadCameraConfiguration(const std::string& configPath)
 }
 
 // 检查是否有已保存的配置
-bool DepthImageGenerator::hasSavedConfiguration() const {
+bool TemplatePointCloudProcessor::hasSavedConfiguration() const {
     // 检查是否已经完成了平面拟合（有效的平面法向量）
     return (planeNormal_.norm() > 0.1f && !autoFitPlane_);
 }

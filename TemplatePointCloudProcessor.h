@@ -37,10 +37,10 @@ struct PixelToPointMapping {
     PixelToPointMapping() : pointIndex(-1), depth(0) {}
 };
 
-class DepthImageGenerator {
+class TemplatePointCloudProcessor {
 public:
-    DepthImageGenerator();
-    ~DepthImageGenerator();
+    TemplatePointCloudProcessor();
+    ~TemplatePointCloudProcessor();
 
     // 核心功能：模板点云预处理 - 拟合平面并生成配置文件
     bool processTemplatePointCloud(const std::string& templateCloudPath, const std::string& configOutputPath);

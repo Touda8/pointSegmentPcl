@@ -3,7 +3,7 @@
 #include <vector>
 #include "Logger.h"
 #include "FileConverter.h"
-#include "DepthImageGenerator.h"
+#include "TemplatePointCloudProcessor.h"
 
 void printUsage(const std::string& programName) {
     std::cout << "Usage: " << programName << " <input_path> <output_path>" << std::endl;
@@ -58,56 +58,33 @@ int main(int argc, char* argv[]) {
     }
     */
 
-    // 新功能：点云到深度图像转换
-    Logger::info("Starting point cloud to depth image conversion...");
+    // 新功能：模板点云预处理（核心功能）
+    Logger::info("Starting template point cloud preprocessing...");
     
-    std::string inputCloudPath = "point/input/pallet_ref.ply";
-    std::string outputImageDir = "output";
+    std::string templateCloudPath = "point/input/newModel.ply";
+    std::string configPath = "output/template_config.ini";
     
-    Logger::info("Input point cloud: " + inputCloudPath);
-    Logger::info("Output directory: " + outputImageDir);
+    Logger::info("Template point cloud: " + templateCloudPath);
+    Logger::info("Configuration output: " + configPath);
     
-    // 创建深度图像生成器
-    DepthImageGenerator depthGenerator;
+    // 创建模板预处理器
+    TemplatePointCloudProcessor templateProcessor;
     
-    // 设置参数（可选，使用默认值也可以）
-    depthGenerator.setImageSize(1920, 1080);
-    depthGenerator.setDepthRange(-2000.0f, -1000.0f);
-    depthGenerator.setCameraPosition(0.0f, 0.0f, 0.0f);
-    depthGenerator.setAutoFitPlane(true); // 启用修复后的自动平面拟合
+    // 设置基本参数
+    templateProcessor.setImageSize(1920, 1080);
+    templateProcessor.setDepthRange(-2000.0f, -1000.0f);
     
-    // 启用深度信息可视化
-    depthGenerator.setDepthVisualization(true);
-    depthGenerator.setDepthColorMap(cv::COLORMAP_PLASMA); // 使用PLASMA颜色映射以获得更好的对比度
+    // 进行模板点云预处理 - 这是核心功能
+    bool templateSuccess = templateProcessor.processTemplatePointCloud(templateCloudPath, configPath);
     
-    // 添加示例ROI（可选）
-    ImageROI roi1;
-    roi1.name = "Sample_ROI_1";
-    roi1.boundingBox = cv::Rect(400, 300, 200, 150);
-    roi1.color = cv::Scalar(0, 255, 0); // 绿色
-    int roiId1 = depthGenerator.addROI(roi1);
-    
-    ImageROI roi2;
-    roi2.name = "Sample_ROI_2";
-    roi2.boundingBox = cv::Rect(800, 500, 300, 200);
-    roi2.color = cv::Scalar(255, 0, 0); // 蓝色
-    int roiId2 = depthGenerator.addROI(roi2);
-    
-    Logger::info("Added sample ROIs with IDs: " + std::to_string(roiId1) + ", " + std::to_string(roiId2));
-    
-    // 生成深度图像
-    bool success = depthGenerator.generateDepthImage(inputCloudPath, outputImageDir);
-    
-    if (success) {
-        Logger::info("Depth image conversion completed successfully!");
-        
-        // 演示点云分割功能（未来扩展）
-        // std::string segmentedOutputPath = outputImageDir + "/segmented_roi_" + std::to_string(roiId1) + ".ply";
-        // depthGenerator.segmentPointCloudByROI(roiId1, segmentedOutputPath);
+    if (templateSuccess) {
+        Logger::info("Template preprocessing completed successfully!");
+        Logger::info("Configuration file generated: " + configPath);
+        Logger::info("Template processing finished. Configuration file can be used for future point cloud processing.");
         
         return 0;
     } else {
-        Logger::error("Depth image conversion failed!");
+        Logger::error("Template preprocessing failed!");
         return 1;
     }
 }
