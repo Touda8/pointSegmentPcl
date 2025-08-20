@@ -1,0 +1,41 @@
+[DEBUG] Running in DEBUG mode
+[INFO] Point Cloud Processing Tool
+[INFO] Built with PCL, VTK and OpenCV libraries
+[INFO] Starting point cloud to depth image conversion...
+[INFO] Input point cloud: point/input/pallet_ref.ply
+[INFO] Output directory: output
+[DEBUG] DepthImageGenerator initialized with default parameters
+[DEBUG] Image size: 640x480
+[DEBUG] Depth range: 0.100000 - 10.000000
+[DEBUG] Image size set to: 2448x2048
+[DEBUG] Focal length adjusted to: 1958.400024
+[DEBUG] Depth range set to: -2000.000000 - -1000.000000
+[DEBUG] Camera position set to: (0.000000, 0.000000, 0.000000)
+[INFO] Starting depth image generation
+[INFO] Input cloud: point/input/pallet_ref.ply
+[INFO] Output directory: output
+[DEBUG] Point cloud coordinate ranges:
+[DEBUG] X: [249.000000, 1599.500000]
+[DEBUG] Y: [0.000000, 1999.500000]
+[DEBUG] Z: [-1460.935547, -1153.894531]
+[DEBUG] Loaded point cloud with 10266357 valid points
+[INFO] Point cloud loaded successfully with 10266357 points
+[DEBUG] Transformed point cloud coordinate ranges:
+[DEBUG] X: [249.000000, 1599.500000]
+[DEBUG] Y: [0.000000, 1999.500000]
+[DEBUG] Z: [-1460.935547, -1153.894531]
+[DEBUG] Point cloud transformed to camera coordinate system
+[DEBUG] Projection parameters:
+[DEBUG] Min depth (abs): 2000.000000
+[DEBUG] Max depth (abs): 1000.000000
+[DEBUG] Focal length: 1958.400024
+[DEBUG] Principal point: (1224.000000, 1024.000000)
+[DEBUG] Image size: 2448x2048
+[DEBUG] Projection statistics:
+[DEBUG] Total points: 10266357
+[DEBUG] Depth filtered out: 10266357
+[DEBUG] Image range filtered out: 0
+[DEBUG] Successfully projected 0 points to depth image
+[ERROR] Failed to project point cloud to depth image
+[ERROR] Depth image conversion failed!
+[DEBUG] DepthImageGenerator destroyed

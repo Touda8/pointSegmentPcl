@@ -3,6 +3,7 @@
 #include <vector>
 #include "Logger.h"
 #include "FileConverter.h"
+#include "DepthImageGenerator.h"
 
 void printUsage(const std::string& programName) {
     std::cout << "Usage: " << programName << " <input_path> <output_path>" << std::endl;
@@ -24,9 +25,11 @@ int main(int argc, char* argv[]) {
     Logger::setDebugMode(false);
 #endif
 
-    Logger::info("File Converter Tool - STL/STEP to PLY");
-    Logger::info("Built with PCL and VTK libraries");
+    Logger::info("Point Cloud Processing Tool");
+    Logger::info("Built with PCL, VTK and OpenCV libraries");
 
+    /* 
+    // 文件转换功能已注释掉
     // 检查命令行参数
     if (argc != 3) {
         Logger::error("Invalid number of arguments");
@@ -51,6 +54,36 @@ int main(int argc, char* argv[]) {
         return 0;
     } else {
         Logger::error("File conversion failed!");
+        return 1;
+    }
+    */
+
+    // 新功能：点云到深度图像转换
+    Logger::info("Starting point cloud to depth image conversion...");
+    
+    std::string inputCloudPath = "point/input/pallet_ref.ply";
+    std::string outputImageDir = "output";
+    
+    Logger::info("Input point cloud: " + inputCloudPath);
+    Logger::info("Output directory: " + outputImageDir);
+    
+    // 创建深度图像生成器
+    DepthImageGenerator depthGenerator;
+    
+    // 设置参数（可选，使用默认值也可以）
+    depthGenerator.setImageSize(1920, 1080);
+    depthGenerator.setDepthRange(-2000.0f, -1000.0f);
+    depthGenerator.setCameraPosition(0.0f, 0.0f, 0.0f);
+    depthGenerator.setAutoFitPlane(true); // 启用修复后的自动平面拟合
+    
+    // 生成深度图像
+    bool success = depthGenerator.generateDepthImage(inputCloudPath, outputImageDir);
+    
+    if (success) {
+        Logger::info("Depth image conversion completed successfully!");
+        return 0;
+    } else {
+        Logger::error("Depth image conversion failed!");
         return 1;
     }
 }
